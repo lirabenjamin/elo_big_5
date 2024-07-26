@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personality Questionnaire</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.5.1/chart.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            width: 80%;
+            margin: auto;
+        }
+        .question {
+            margin: 20px 0;
+        }
+        .charts {
+            display: flex;
+            justify-content: space-between;
+        }
+        .chart-container {
+            width: 45%;
+        }
+        canvas {
+            background: #f8f8f8;
+            border: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Personality Questionnaire</h1>
+        <div class="question" id="question"></div>
+        <button onclick="submitAnswer(1)">1</button>
+        <button onclick="submitAnswer(2)">2</button>
+        <div class="charts">
+            <div class="chart-container">
+                <h2>Item Elo Scores</h2>
+                <canvas id="itemChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h2>Dimension Elo Scores</h2>
+                <canvas id="dimensionChart"></canvas>
+            </div>
+        </div>
+        <div class="chart-container">
+            <h2>Dimension Elo Scores Over Time</h2>
+            <canvas id="dimensionTimeChart"></canvas>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.5.1/chart.min.js"></script>
+    <script>
+        const items = {{ items | tojson }};
+        let questionsAnswered = 0;
+        let dimensionScoresOverTime = {
+            Extraversion: [],
+            Agreeableness: [],
+            Conscientiousness: [],
+            Neuroticism: [],
+            Openness: []
+        };
+
+        function getRandomItems() {
+            const keys = Object.keys(items);
+            let item_a = keys[Math.floor(Math.random() * keys.length)];
+            let item_b = keys[Math.floor(Math.random() * keys.length)];
+            while (item_a === item_b) {
+                item_b = keys[Math.floor(Math.random() * keys.length)];
+            }
+            return [item_a, item_b];
+        }
+
+        function updateQuestion() {
+            const [item_a, item_b] = getRandomItems();
+            document.getElementById('question').innerHTML = `
+                <p>Which item describes you better?</p>
+                <p>1: ${items[item_a]}</p>
+                <p>2: ${items[item_b]}</p>
+                <input type="hidden" id="item_a" value="${item_a}">
+                <input type="hidden" id="item_b" value="${item_b}">
+            `;
+        }
+
+        function submitAnswer(choice) {
+            const item_a = document.getElementById('item_a').value;
+            const item_b = document.getElementById('item_b').value;
+
+            fetch('/compare', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ item_a, item_b, choice }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                updateCharts(data.elo_ratings, data.big_five_elo);
+                questionsAnswered++;
+                updateDimensionTimeChart(data.big_five_elo);
+                updateQuestion();
+            });
+        }
+
+        function updateCharts(eloRatings, bigFiveElo) {
+            const itemLabels = Object.keys(eloRatings).map(key => items[key]);
+            const itemData = Object.values(eloRatings);
+
+            itemChart.data.labels = itemLabels;
+            itemChart.data.datasets[0].data = itemData;
+            itemChart.update();
+
+            const dimensionLabels = Object.keys(bigFiveElo);
+            const dimensionData = Object.values(bigFiveElo);
+
+            dimensionChart.data.labels = dimensionLabels;
+            dimensionChart.data.datasets[0].data = dimensionData;
+            dimensionChart.update();
+        }
+
+        function updateDimensionTimeChart(bigFiveElo) {
+            for (let dimension in dimensionScoresOverTime) {
+                dimensionScoresOverTime[dimension].push({
+                    x: questionsAnswered,
+                    y: bigFiveElo[dimension]
+                });
+            }
+
+            dimensionTimeChart.data.datasets.forEach(dataset => {
+                dataset.data = dimensionScoresOverTime[dataset.label];
+            });
+
+            dimensionTimeChart.update();
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            updateQuestion();
+
+            const ctxItem = document.getElementById('itemChart').getContext('2d');
+            window.itemChart = new Chart(ctxItem, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Elo Score',
+                        data: [],
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            const ctxDimension = document.getElementById('dimensionChart').getContext('2d');
+            window.dimensionChart = new Chart(ctxDimension, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Elo Score',
+                        data: [],
+                        backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                        borderColor: 'rgba(153, 102, 255, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            const ctxDimensionTime = document.getElementById('dimensionTimeChart').getContext('2d');
+            window.dimensionTimeChart = new Chart(ctxDimensionTime, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Extraversion',
+                            data: [],
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            fill: false
+                        },
+                        {
+                            label: 'Agreeableness',
+                            data: [],
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            fill: false
+                        },
+                        {
+                            label: 'Conscientiousness',
+                            data: [],
+                            borderColor: 'rgba(255, 206, 86, 1)',
+                            backgroundColor: 'rgba(255, 206, 86, 0.2)',
+                            fill: false
+                        },
+                        {
+                            label: 'Neuroticism',
+                            data: [],
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            fill: false
+                        },
+                        {
+                            label: 'Openness',
+                            data: [],
+                            borderColor: 'rgba(153, 102, 255, 1)',
+                            backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            title: {
+                                display: true,
+                                text: 'Question Number'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Elo Score'
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
